@@ -1,11 +1,4 @@
-#!/usr/bin/env python
 # -*- coding: UTF-8 -*-
-
-__title__ = 'pycloudflare-v4'
-__version__ = '0.8.4'
-__author__ = 'Michael Zaglada'
-__email__ = "zmpbox@gmail.com"
-__license__ = 'MIT'
 
 import json
 import requests
@@ -17,6 +10,11 @@ class CloudFlare(object):
     def __init__(self, email, token):
         self.EMAIL = email
         self.TOKEN = token
+        self.headers = {
+            'X-Auth-Email': self.EMAIL,
+            'X-Auth-Key': self.TOKEN,
+            'Content-Type': 'application/json'
+        }
 
     class CONNError(Exception):
         pass
@@ -27,10 +25,9 @@ class CloudFlare(object):
     class WRAPPERError(Exception):
         pass
 
-    def api_call_get(self, url, data=None):
-        headers = {'X-Auth-Email': self.EMAIL, 'X-Auth-Key': self.TOKEN, 'Content-Type': 'application/json'}
+    def api_call_get(self, url, params=None):
         try:
-            r = requests.get(cf_api_url + url, data=json.dumps(data), headers=headers)
+            r = requests.get(cf_api_url + url, params=params, headers=self.headers)
         except (requests.ConnectionError,
                 requests.RequestException,
                 requests.HTTPError,
@@ -38,7 +35,7 @@ class CloudFlare(object):
                 requests.TooManyRedirects) as e:
             raise self.CONNError(str(e))
         try:
-            api_result = json.loads(r.text)
+            api_result = r.json()
         except ValueError:
             raise self.APIError('JSON parse failed.')
         if api_result['result'] == 'error':
@@ -46,9 +43,8 @@ class CloudFlare(object):
         return api_result
 
     def api_call_post(self, url, data=None):
-        headers = {'X-Auth-Email': self.EMAIL, 'X-Auth-Key': self.TOKEN, 'Content-Type': 'application/json'}
         try:
-            r = requests.post(cf_api_url + url, data=json.dumps(data), headers=headers)
+            r = requests.post(cf_api_url + url, data=json.dumps(data), headers=self.headers)
         except (requests.ConnectionError,
                 requests.RequestException,
                 requests.HTTPError,
@@ -56,17 +52,16 @@ class CloudFlare(object):
                 requests.TooManyRedirects) as e:
             raise self.CONNError(str(e))
         try:
-            api_result = json.loads(r.text)
+            api_result = r.json()
         except ValueError:
             raise self.APIError('JSON parse failed.')
         if api_result['result'] == 'error':
             raise self.APIError(api_result['msg'])
         return api_result
 
-    def api_call_delete(self, uri, data='{}'):
-        headers = {'X-Auth-Email': self.EMAIL, 'X-Auth-Key': self.TOKEN, 'Content-Type': 'application/json'}
+    def api_call_delete(self, uri, data={}):
         try:
-            r = requests.delete(cf_api_url + uri, data=json.dumps(data), headers=headers)
+            r = requests.delete(cf_api_url + uri, data=json.dumps(data), headers=self.headers)
         except (requests.ConnectionError,
                 requests.RequestException,
                 requests.HTTPError,
@@ -74,17 +69,16 @@ class CloudFlare(object):
                 requests.TooManyRedirects) as e:
             raise self.CONNError(str(e))
         try:
-            api_result = json.loads(r.text)
+            api_result = r.json()
         except ValueError:
             raise self.APIError('JSON parse failed.')
         if not api_result['success']:
             raise self.APIError(api_result['errors'])
         return api_result
 
-    def api_call_patch(self, uri, data='{}'):
-        headers = {'X-Auth-Email': self.EMAIL, 'X-Auth-Key': self.TOKEN, 'Content-Type': 'application/json'}
+    def api_call_patch(self, uri, data={}):
         try:
-            r = requests.patch(cf_api_url + uri, data=json.dumps(data), headers=headers)
+            r = requests.patch(cf_api_url + uri, data=json.dumps(data), headers=self.headers)
         except (requests.ConnectionError,
                 requests.RequestException,
                 requests.HTTPError,
@@ -92,17 +86,16 @@ class CloudFlare(object):
                 requests.TooManyRedirects) as e:
             raise self.CONNError(str(e))
         try:
-            api_result = json.loads(r.text)
+            api_result = r.json()
         except ValueError:
             raise self.APIError('JSON parse failed.')
         if api_result['result'] == 'error':
             raise self.APIError(api_result['msg'])
         return api_result
 
-    def api_call_put(self, uri, data='{}'):
-        headers = {'X-Auth-Email': self.EMAIL, 'X-Auth-Key': self.TOKEN, 'Content-Type': 'application/json'}
+    def api_call_put(self, uri, data={}):
         try:
-            r = requests.put(cf_api_url + uri, data=json.dumps(data), headers=headers)
+            r = requests.put(cf_api_url + uri, data=json.dumps(data), headers=self.headers)
         except (requests.ConnectionError,
                 requests.RequestException,
                 requests.HTTPError,
@@ -110,7 +103,7 @@ class CloudFlare(object):
                 requests.TooManyRedirects) as e:
             raise self.CONNError(str(e))
         try:
-            api_result = json.loads(r.text)
+            api_result = r.json()
         except ValueError:
             raise self.APIError('JSON parse failed.')
         if api_result['result'] == 'error':
@@ -136,8 +129,15 @@ class CloudFlare(object):
         except BaseException as e:
             raise self.APIError(str(e))
 
+        if intermediate_result['success']:
+            for i in intermediate_result['result']:
+                all_zones[i['name']] = i
+
         pages = intermediate_result['result_info']['total_pages']
-        for p in range(1, (pages+1)):
+        if pages == 1:
+            return all_zones
+
+        for p in range(2, (pages + 1)):
             zones = self.api_call_get("zones&page={0}&per_page=50".format(p))
             if zones['success']:
                 for i in zones['result']:
@@ -146,6 +146,20 @@ class CloudFlare(object):
                 raise self.APIError(str(zones['errors']))
 
         return all_zones
+
+    def create_zone(self, domain, jump_start=False):
+        """
+        Create Zone, https://api.cloudflare.com/#zone-create-zone
+        :param domain: domain
+        :param jump_start: Automatically attempt to fetch existing DNS records
+        :return:
+        """
+        try:
+            data = {'name': domain, 'jump_start': jump_start}
+            result = self.api_call_post('zones', data)
+            return result
+        except BaseException as e:
+            raise self.APIError(str(e))
 
     # Purge all cache for the zone
     def purge_everything(self, zone_id):
@@ -176,11 +190,32 @@ class CloudFlare(object):
                 result[i['id']] = i
         return result
 
-    def change_always_online_setting(self, zone_id, always_online):
+    def change_always_use_https(self, zone_id, always_use_https='off'):
+        """
+        https://api.cloudflare.com/#zone-settings-change-always-use-https-setting
+        :param zone_id:
+        :param always_use_https: valid values 'default', 'on', 'off'
+        :return:
+        """
+        uri = 'zones/{}/settings/always_use_https'.format(zone_id)
+        valid_values = ['default', 'on', 'off']
+
+        if always_use_https not in valid_values:
+            raise self.WRAPPERError('valid values: {0}'.format(valid_values))
+
+        if always_use_https == "default":
+            set_always_use_https = "off"
+        else:
+            set_always_use_https = always_use_https
+
+        data = {'value': set_always_use_https}
+        return self.api_call_patch(uri, data)
+
+    def change_always_online_setting(self, zone_id, always_online='off'):
         """
         https://api.cloudflare.com/#zone-settings-change-always-online-setting
         :param zone_id:
-        :param always_online:
+        :param always_online: valid values 'default', 'on', 'off'
         :return:
         """
 
@@ -197,34 +232,18 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_always_online)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
-    def change_automatic_https_rewrites_setting(self, zone_id, automatic_https_rewrites):
+    def change_automatic_https_rewrites_setting(self, zone_id, automatic_https_rewrites='on'):
         """
         https://api.cloudflare.com/#zone-settings-change-automatic-https-rewrites-setting
         :param zone_id:
-        :param automatic_https_rewrites:
+        :param automatic_https_rewrites: valid values: on, off
         :return:
         """
-
         uri = "zones/{0}/settings/automatic_https_rewrites".format(zone_id)
-
-        if automatic_https_rewrites == "default":
-            set_automatic_https_rewrites = "off"
-        else:
-            set_automatic_https_rewrites = automatic_https_rewrites
-
-        data = {"value": "{0}".format(set_automatic_https_rewrites)}
-
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        data = {"value": "{0}".format(automatic_https_rewrites)}
+        return self.api_call_patch(uri, data)
 
     def change_browser_cache_ttl_setting(self, zone_id, browser_cache_ttl):
         """
@@ -249,11 +268,7 @@ class CloudFlare(object):
 
         data = {"value": set_browser_cache_ttl}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_browser_check_setting(self, zone_id, browser_check):
         """
@@ -275,11 +290,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_browser_check)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_cache_level_setting(self, zone_id, cache_level):
         """
@@ -301,11 +312,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_cache_level)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_challenge_ttl_setting(self, zone_id, challenge_ttl):
         """
@@ -329,11 +336,7 @@ class CloudFlare(object):
 
         data = {"value": set_challenge_ttl}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_development_mode_setting(self, zone_id, development_mode):
         """
@@ -355,11 +358,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_development_mode)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_email_obfuscation_setting(self, zone_id, email_obfuscation):
         """
@@ -381,11 +380,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_email_obfuscation)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_origin_error_page_pass_thru_setting(self, zone_id, origin_error_page_pass_thru):
         """
@@ -407,11 +402,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_origin_error_page_pass_thru)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_sort_query_string_for_cache_setting(self, zone_id, sort_query_string_for_cache):
         """
@@ -433,17 +424,13 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_sort_query_string_for_cache)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_hotlink_protection_setting(self, zone_id, hotlink_protection):
         """
         https://api.cloudflare.com/#zone-settings-change-hotlink-protection-setting
         :param zone_id:
-        :param hotlink_protection:
+        :param hotlink_protection: valid values 'default', 'on', 'off'
         :return:
         """
         uri = "zones/{0}/settings/hotlink_protection".format(zone_id)
@@ -459,17 +446,13 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_hotlink_protection)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_ip_geolocation_setting(self, zone_id, ip_geolocation):
         """
         https://api.cloudflare.com/#zone-settings-change-ip-geolocation-setting
         :param zone_id:
-        :param hotlink_protection:
+        :param ip_geolocation: valid values 'default', 'on', 'off'
         :return:
         """
         uri = "zones/{0}/settings/ip_geolocation".format(zone_id)
@@ -485,17 +468,13 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_ip_geolocation)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_ipv6_setting(self, zone_id, ipv6):
         """
         https://api.cloudflare.com/#zone-settings-change-ipv6-setting
         :param zone_id:
-        :param ipv6:
+        :param ipv6: valid values 'default', 'on', 'off'
         :return:
         """
         uri = "zones/{0}/settings/ipv6".format(zone_id)
@@ -511,11 +490,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_ipv6)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_minify_setting(self, zone_id, minify):
         """
@@ -527,17 +502,13 @@ class CloudFlare(object):
         uri = "zones/{0}/settings/minify".format(zone_id)
 
         if minify == "default":
-            set_minify = {"css":"off","html":"off","js":"off"}
+            set_minify = {"css": "off", "html": "off", "js": "off"}
         else:
             set_minify = minify
 
         data = {"value": "{0}".format(set_minify)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_mobile_redirect_setting(self, zone_id, mobile_redirect):
         """
@@ -555,11 +526,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_mobile_redirect)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_mirage_setting(self, zone_id, mirage):
         """
@@ -581,11 +548,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_mirage)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_opportunistic_encryption_setting(self, zone_id, opportunistic_encryption):
         """
@@ -607,11 +570,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_opportunistic_encryption)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_polish_setting(self, zone_id, polish):
         """
@@ -633,11 +592,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_polish)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_prefetch_preload_setting(self, zone_id, prefetch_preload):
         """
@@ -659,11 +614,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_prefetch_preload)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_response_buffering_setting(self, zone_id, response_buffering):
         """
@@ -685,11 +636,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_response_buffering)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_rocket_loader_setting(self, zone_id, rocket_loader):
         """
@@ -711,11 +658,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_rocket_loader)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_security_header_setting(self, zone_id, security_header):
         """
@@ -730,11 +673,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_security_header)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_security_level_setting(self, zone_id, security_level):
         """
@@ -756,11 +695,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_security_level)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_server_side_exclude_setting(self, zone_id, server_side_exclude):
         """
@@ -782,11 +717,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_server_side_exclude)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_ssl_setting(self, zone_id, ssl):
         """
@@ -808,11 +739,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_ssl)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_tls_client_auth_setting(self, zone_id, tls_client_auth):
         """
@@ -827,11 +754,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_tls_client_auth)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_true_client_ip_header_setting(self, zone_id, true_client_ip_header):
         """
@@ -853,11 +776,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_true_client_ip_header)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_tls_1_2_only_setting(self, zone_id, tls_1_2_only):
         """
@@ -879,11 +798,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_tls_1_2_only)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_tls_1_3_setting(self, zone_id, tls_1_3):
         """
@@ -905,11 +820,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_tls_1_3)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_waf_setting(self, zone_id, waf):
         uri = "zones/{0}/settings/waf".format(zone_id)
@@ -925,11 +836,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_waf)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     def change_websockets_setting(self, zone_id, websockets):
         """
@@ -951,11 +858,7 @@ class CloudFlare(object):
 
         data = {"value": "{0}".format(set_websockets)}
 
-        set_settings = self.api_call_patch(uri, data)
-        if set_settings['success']:
-            return set_settings['result']
-        else:
-            return "Error", set_settings['errors']
+        return self.api_call_patch(uri, data)
 
     ################################################################
     #  DNS (https://api.cloudflare.com/#dns-records-for-a-zone)    #
@@ -968,115 +871,99 @@ class CloudFlare(object):
         :param zone_id:
         :return: list
         """
-        record_types = ["A", "AAAA", "CNAME", "TXT", "SRV", "LOC", "MX", "NS", "SPF"]  # all available record types
-        records = []
-        record_types_pages = {}
+        uri = 'zones/{}/dns_records'.format(zone_id)
+        all_records = {}
+        params = {'per_page': 200, 'page': 1}
+        result = self.api_call_get(uri, params)
 
-        for record_type in record_types:
-            """Get the number of pages for each record type"""
-            uri_get_pages = "zones/" + str(zone_id) + "/dns_records?type={type}&per_page=100".format(type=record_type)
-            try:
-                intermediate_result = self.api_call_get(uri_get_pages)
-            except BaseException as e:
-                raise self.APIError(str(e))
+        if result['success']:
+            for i in result['result']:
+                all_records[i['id']] = i
+        else:
+            raise self.APIError(result['errors'])
 
-            record_types_pages[record_type] = intermediate_result['result_info']['total_pages']
+        pages = result['result_info']['total_pages']
+        if pages == '1':
+            return all_records
 
-        for record_type in record_types:
-            for page in range(1, (record_types_pages[record_type] + 1)):
-                uri = "zones/" + str(zone_id) + "/dns_records?type={type}&page={page}&per_page=100".format(
-                    type=record_type,
-                    page=page)
+        for page in range(2, (pages + 1)):
+            params['page'] = page
+            result = self.api_call_get(uri, params)
+            if result['success']:
+                for i in result['result']:
+                    all_records[i['id']] = i
+            else:
+                raise self.APIError(result['errors'])
+        return all_records
 
-                dns_records = self.api_call_get(uri)
-                if dns_records['success']:
-                    for i in dns_records['result']:
-                        records.append(i)
-                else:
-                    raise self.APIError(str(dns_records['errors']))
-        return records
-
-    def dns_records_create(self, zone_id, record_type, record_name, record_content, record_ttl=1, record_proxied=False,
-                           record_priority=False):
+    def dns_records_create(self,
+                           zone_id,
+                           record_type,
+                           record_name,
+                           record_content,
+                           record_ttl=1,
+                           record_proxied=True,
+                           record_priority=False
+                           ):
         """
         https://api.cloudflare.com/#dns-records-for-a-zone-create-dns-record
         :param zone_id:
-        :param record_type:
-        :param record_name:
-        :param record_content:
-        :param record_ttl:
-        :param record_proxied:
-        :param record_priority:
+        :param record_type: DNS record type
+        :param record_name: DNS record name
+        :param record_content: DNS record content
+        :param record_ttl: Time to live for DNS record. Value of 1 is 'automatic'
+        :param record_proxied:  Whether the record is receiving the performance and security benefits of Cloudflare
+                                valid values: (true,false)
+        :param record_priority: Used with some records like MX and SRV to determine priority.
+                                If you do not supply a priority for an MX record,
+                                a default value of 0 will be set
+                                min value:0  max value:65535
         :return:
         """
-        uri = "zones/" + str(zone_id) + "/dns_records/"
-        data = {"type": record_type,
-                "name": record_name,
-                "content": record_content,
-                "ttl": record_ttl,
-                "proxied": True
-                }
-
-        if record_proxied in ['true', 'True', 1]:
-            data['proxied'] = json.loads('true')
-
-        if record_proxied in ['false', 'False', 0]:
-            data['proxied'] = json.loads('false')
-
+        uri = 'zones/{}/dns_records'.format(zone_id)
+        data = {
+            "type": record_type,
+            "name": record_name,
+            "content": record_content,
+            "ttl": record_ttl,
+            "proxied": record_proxied
+        }
         if record_type == 'MX':
             data['priority'] = record_priority
+        return self.api_call_post(uri, data)
 
-        create_record = self.api_call_post(uri, data)
-
-        if create_record['success']:
-            return create_record['result']
-        else:
-            raise self.APIError(str(create_record['errors']))
-
-    def dns_records_update(self, zone_id, record_id,
-                           proxied=False,
-                           content=False,
-                           name=False,
-                           ttl=False,
-                           priority=False):
+    def dns_records_update(self, zone_id, record_id, type=False, name=False, content=False, ttl=False, proxied=False):
         """
         https://api.cloudflare.com/#dns-records-for-a-zone-update-dns-record
         :param zone_id:
         :param record_id:
-        :param proxied:
-        :param content:
+        :param type:
         :param name:
+        :param content:
         :param ttl:
-        :param priority:
+        :param proxied:
         :return:
         """
-        uri = "zones/" + str(zone_id) + "/dns_records/" + str(record_id)
-        valid_values_proxied = [False, 'false', 'true']
+        uri = 'zones/{}/dns_records/{}'.format(zone_id, record_id)
+        # valid_values_type = []
+        valid_values_proxied = [False, True, 'false', 'true']
         valid_values_ttl = [False, 1, 120, 300, 600, 900, 1800, 2700, 3600, 7200, 18000, 43200]
         change_list = dict()
         if proxied not in valid_values_proxied:
             raise self.WRAPPERError('valid values: "false", "true" in quotes!')
         if int(ttl) not in valid_values_ttl:
-            raise self.WRAPPERError('valid values: 1 - Automatic, 120, 300, 600, 900, 1800, 2700, 3600, 7200, 18000, 43200')
-        change_list['proxied'] = proxied
-        change_list['content'] = content
+            raise self.WRAPPERError(
+                'valid values: 1 - Automatic, 120, 300, 600, 900, 1800, 2700, 3600, 7200, 18000, 43200')
+        change_list['type'] = type
         change_list['name'] = name
+        change_list['content'] = content
         change_list['ttl'] = ttl
-        change_list['priority'] = priority
-
-        #  First, fetch data for the record
-        for i in self.dns_records(zone_id):
-            if i['id'] == record_id:
-                original_data = i
-
-        data = original_data
-
-        for k, v in change_list.iteritems():
-            if k == 'proxied' and v:
-                data[k] = json.loads(v)  # escape for true/false in proxied settings
-            elif v:
-                data[k] = v
-        return self.api_call_put(uri, data)
+        change_list['proxied'] = proxied
+        original_data = self.dns_records(zone_id)[record_id]
+        for k, v in change_list.items():
+            if v:
+                original_data[k] = v
+        return self.api_call_put(uri, original_data)
 
     def dns_records_delete(self, zone_id, record_id):
         """
@@ -1085,16 +972,285 @@ class CloudFlare(object):
         :param record_id:
         :return:
         """
-        uri = "zones/" + str(zone_id) + "/dns_records/" + str(record_id)
+        uri = "zones/{}/dns_records/{}".format(zone_id, record_id)
+        return self.api_call_delete(uri)
 
-        return self.api_call_delete(uri, data=False)
+    #################################################################################
+    # Page Rules for a Zone (https://api.cloudflare.com/#cloudflare-ips-properties) #
+    #################################################################################
+    def page_rules(self, zone_id):
+        """
+        https://api.cloudflare.com/#page-rules-for-a-zone-list-page-rules
+        :param zone_id:
+        :return:
+        """
+        uri = 'zones/{}/pagerules'.format(zone_id)
+        return self.api_call_get(uri)
+
+    def page_rule_create(self, zone_id, targets, actions, status='active'):
+        """
+        https://api.cloudflare.com/#page-rules-for-a-zone-create-page-rule
+        :param zone_id:
+        :param targets:
+        :param actions:
+        :param status:
+        :return:
+        """
+        uri = 'zones/{}/pagerules'.format(zone_id)
+        data = {'targets': targets, 'actions': actions, 'status': status}
+        return self.api_call_post(uri, data)
+
+    def page_rule_details(self, zone_id, rule_id):
+        """
+        https://api.cloudflare.com/#page-rules-for-a-zone-page-rule-details
+        :param zone_id:
+        :param rule_id:
+        :return:
+        """
+        uri = 'zones/{}/pagerules/{}'.format(zone_id, rule_id)
+        return self.api_call_get(uri)
+
+    def page_rule_edit(self, zone_id, rule_id, targets=None, actions=None, status='active'):
+        """
+        https://api.cloudflare.com/#page-rules-for-a-zone-edit-page-rule
+        :param zone_id:
+        :param rule_id:
+        :param targets:
+        :param actions:
+        :param status:
+        :return:
+        """
+        uri = 'zones/{}/pagerules/{}'.format(zone_id, rule_id)
+        data = {'status': status}
+        if targets:
+            data['targets'] = targets
+        if actions:
+            data['actions'] = actions
+        return self.api_call_patch(uri, data)
+
+    def page_rule_delete(self, zone_id, rule_id):
+        """
+        https://api.cloudflare.com/#page-rules-for-a-zone-delete-page-rule
+        :param zone_id:
+        :param rule_id:
+        :return:
+        """
+        uri = 'zones/{}/pagerules/{}'.format(zone_id, rule_id)
+        return self.api_call_delete(uri)
+
+    ############################################################################################################
+    # User-level Firewall Access Rule (https://api.cloudflare.com/#user-level-firewall-access-rule-properties) #
+    ############################################################################################################
+    def firewall_user_access_rules(self):
+        """
+        https://api.cloudflare.com/#user-level-firewall-access-rule-list-access-rules
+        :return:
+        """
+        all_rules = {}
+        uri = 'user/firewall/access_rules/rules'
+        params = {'per_page': 200, 'page': 1}
+        result = self.api_call_get(uri, params)
+
+        if result['success']:
+            for i in result['result']:
+                all_rules[i['id']] = i
+        else:
+            raise self.APIError(result['errors'])
+
+        pages = result['result_info']['total_pages']
+        if pages == '1':
+            return all_rules
+
+        for page in range(2, (pages + 1)):
+            params['page'] = page
+            result = self.api_call_get(uri, params)
+            if result['success']:
+                for i in result['result']:
+                    all_rules[i['id']] = i
+            else:
+                raise self.APIError(result['errors'])
+        return all_rules
+
+    def firewall_user_access_rule_create(self, mode, configuration, notes):
+        """
+        https://api.cloudflare.com/#user-level-firewall-access-rule-create-access-rule
+        :param mode:
+        :param configuration:
+        :param notes:
+        :return:
+        """
+        uri = 'user/firewall/access_rules/rules'
+        data = {'mode': mode, 'configuration': configuration, 'notes': notes}
+        return self.api_call_post(uri, data)
+
+    def firewall_user_access_rule_ip(self, ip, mode="block", notes=None):
+        """
+
+        :param ip: ip or ip range
+        :param mode: block, challenge, whitelist, js_challenge
+        :param notes:
+        :return:
+        """
+        if ip[-3] == '/':
+            configuration = {"target": "ip_range", "value": ip}
+        else:
+            configuration = {"target": "ip", "value": ip}
+        notes = notes or '{} {}'.format(mode, ip)
+        return self.firewall_user_access_rule_create(mode, configuration, notes)
+
+    def firewall_user_access_rule_country(self, country, mode="block", notes=None):
+        """
+
+        :param country:
+        :param mode: block, challenge, whitelist, js_challenge
+        :param notes:
+        :return:
+        """
+        configuration = {"target": "country", "value": country}
+        notes = notes or '{} {}'.format(mode, country)
+        return self.firewall_user_access_rule_create(mode, configuration, notes)
+
+    def firewall_user_access_rule_edit(self, rule_id, mode=None, notes=None):
+        """
+        https://api.cloudflare.com/#user-level-firewall-access-rule-edit-access-rule
+        :param rule_id:
+        :param mode:
+        :param notes:
+        :return:
+        """
+        uri = 'user/firewall/access_rules/rules/{}'.format(rule_id)
+        data = {}
+        if mode:
+            data['mode'] = mode
+        if notes:
+            data['notes'] = notes
+        if not data:
+            raise self.APIError('missing parameters')
+        return self.api_call_patch(uri, data)
+
+    def firewall_user_access_rule_delete(self, rule_id):
+        """
+        https://api.cloudflare.com/#user-level-firewall-access-rule-delete-access-rule
+        :param rule_id:
+        :return:
+        """
+        uri = 'user/firewall/access_rules/rules/{}'.format(rule_id)
+        return self.api_call_delete(uri)
+
+    ############################################################################################################
+    # Firewall Access Rule for a Zone (https://api.cloudflare.com/#firewall-access-rule-for-a-zone-properties) #
+    ############################################################################################################
+    def firewall_zone_access_rules(self, zone_id):
+        """
+        https://api.cloudflare.com/#firewall-access-rule-for-a-zone-list-access-rules
+        :param zone_id:
+        :return:
+        """
+        all_rules = {}
+        uri = 'zones/{}/firewall/access_rules/rules'.format(zone_id)
+        params = {'per_page': 200, 'page': 1}
+        result = self.api_call_get(uri, params)
+
+        if result['success']:
+            for i in result['result']:
+                all_rules[i['id']] = i
+        else:
+            raise self.APIError(result['errors'])
+        pages = result['result_info']['total_pages']
+        if pages == '1':
+            return all_rules
+
+        for page in range(2, (pages + 1)):
+            params['page'] = page
+            result = self.api_call_get(uri, params)
+            if result['success']:
+                for i in result['result']:
+                    all_rules[i['id']] = i
+            else:
+                raise self.APIError(result['errors'])
+        return all_rules
+
+    def firewall_zone_access_rule_create(self, zone_id, mode, configuration, notes):
+        """
+        https://api.cloudflare.com/#firewall-access-rule-for-a-zone-create-access-rule
+        :param zone_id:
+        :param mode:
+        :param configuration:
+        :param notes:
+        :return:
+        """
+        uri = 'zones/{}/firewall/access_rules/rules'.format(zone_id)
+        data = {'mode': mode, 'configuration': configuration, 'notes': notes}
+        return self.api_call_post(uri, data)
+
+    def firewall_zone_access_rule_ip(self, zone_id, ip, mode="block", notes=None):
+        """
+        :param zone_id:
+        :param ip:
+        :param mode: block, challenge, whitelist, js_challenge
+        :param notes:
+        :return:
+        """
+
+        if ip[-3] == '/':
+            configuration = {"target": "ip_range", "value": ip}
+        else:
+            configuration = {"target": "ip", "value": ip}
+
+        notes = notes or '{} {}'.format(mode, ip)
+
+        return self.firewall_zone_access_rule_create(zone_id, mode, configuration, notes)
+
+    def firewall_zone_access_rule_country(self, zone_id, country, mode="block", notes=None):
+        """
+        :param zone_id:
+        :param country:
+        :param mode: block, challenge, whitelist, js_challenge
+        :param notes:
+        :return:
+        """
+        configuration = {"target": "country", "value": country}
+        notes = notes or '{} {}'.format(mode, country)
+        return self.firewall_zone_access_rule_create(zone_id, mode, configuration, notes)
+
+    def firewall_zone_access_rule_edit(self, zone_id, rule_id, mode=None, notes=None):
+        """
+        https://api.cloudflare.com/#firewall-access-rule-for-a-zone-edit-access-rule
+        :param zone_id:
+        :param rule_id:
+        :param mode:
+        :param notes:
+        :return:
+        """
+        uri = 'zones/{}/firewall/access_rules/rules/{}'.format(zone_id, rule_id)
+        data = {}
+        if mode:
+            data['mode'] = mode
+        if notes:
+            data['notes'] = notes
+        if not data:
+            raise self.APIError('missing parameters')
+        return self.api_call_patch(uri, data)
+
+    def firewall_zone_access_rule_delete(self, zone_id, rule_id):
+        """
+        https://api.cloudflare.com/#firewall-access-rule-for-a-zone-delete-access-rule
+        :param zone_id:
+        :param rule_id:
+        :return:
+        """
+        uri = 'zones/{}/firewall/access_rules/rules/{}'.format(zone_id, rule_id)
+        return self.api_call_delete(uri)
 
     ##########################################################################
     # CloudFlare IPs (https://api.cloudflare.com/#cloudflare-ips-properties) #
     ##########################################################################
     def cf_ips(self):
+        """
+        Get Cloudflare IPs
+        :return: dict
+        """
         uri = "ips"
         response = self.api_call_get(uri)
         if response['success']:
-            ips = response['result']
-        return ips
+            return response['result']

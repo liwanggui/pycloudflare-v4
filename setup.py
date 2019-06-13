@@ -2,14 +2,15 @@
 
 from distutils.core import setup
 from setuptools import find_packages
+from pycloudflare_v4 import __version__
 
 setup(
     name='pycloudflare-v4',
-    version='0.8.4',
+    version=__version__,
     description='Python wrapper for CloudFlare API v4',
-    url='https://github.com/zmgit/pycloudflare-v4',
-    author='Michael Zaglada',
-    author_email='zmpbox@gmail.com',
+    url='https://github.com/liwanggui/pycloudflare-v4',
+    author='liwanggui',
+    author_email='liwg.jx@gmail.com',
     license='MIT',
 
     classifiers=[
@@ -17,8 +18,11 @@ setup(
         'Intended Audience :: DevOps, Sysadmins, Developers',
         'Topic :: Tools',
         'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python :: 2.6',
         'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
     ],
 
     keywords='CludFlare API v4 wrapper',
